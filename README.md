@@ -23,6 +23,10 @@ On a Mac, closing an app's last window usually doesn't quit the app. It keeps ru
 
 **[⬇ Download CloseQuit for macOS](https://github.com/MehbubRashid/CloseQuit/releases/latest)**. Requires macOS 14 Sonoma or later on an Apple Silicon Mac (M1 or later).
 
+<p align="center">
+  <img src="docs/closequit-menu-bar-macos.png" width="328" alt="CloseQuit menu bar window on macOS: the apps that quit when their last window closes (Activity Monitor, Claude, VS Code, Google Chrome, Preview and Terminal), the ⌘W and delay settings, and a Recent entry reading “Quit Terminal — you closed its last window (close button)”">
+</p>
+
 ## Features
 
 - **Red close button and ⌘W.** Close the last window the way you always do, and the app quits.
