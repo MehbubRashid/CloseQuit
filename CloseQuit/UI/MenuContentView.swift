@@ -217,7 +217,7 @@ private struct OptionsSection: View {
                     .toggleStyle(.switch)
                     .controlSize(.mini)
             }
-            SettingRow(title: "Check after", detail: "How long to wait after a close before looking.") {
+            SettingRow(title: "Check after", detail: "Delay after a close before checking.") {
                 HStack(spacing: 2) {
                     Text("\(model.checkDelayMs) ms")
                         .monospacedDigit()
@@ -249,7 +249,11 @@ private struct SettingRow<Control: View>: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
                 if let detail {
-                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                    // Wrap rather than truncate if a description is ever too long for the row.
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer(minLength: 8)
