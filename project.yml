@@ -1,0 +1,101 @@
+# XcodeGen spec for CloseQuit. Generate the Xcode project with `xcodegen generate`
+# (or just run `make`, which does it for you).
+
+name: CloseQuit
+
+options:
+  bundleIdPrefix: com.closequit
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+settings:
+  base:
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    SWIFT_VERSION: "5.0"
+    SWIFT_STRICT_CONCURRENCY: minimal
+    # Apple Silicon only.
+    ARCHS: arm64
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEAD_CODE_STRIPPING: YES
+
+targets:
+  CloseQuit:
+    type: application
+    platform: macOS
+    # DEVELOPMENT_TEAM and the bundle ID live here, so you never have to edit this file.
+    configFiles:
+      Debug: Config/Signing.xcconfig
+      Release: Config/Signing.xcconfig
+    sources:
+      - path: CloseQuit
+    info:
+      path: CloseQuit/Info.plist
+      properties:
+        CFBundleName: CloseQuit
+        CFBundleDisplayName: CloseQuit
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        LSApplicationCategoryType: public.app-category.utilities
+        # Menu bar only: no Dock icon, no main menu.
+        LSUIElement: true
+        NSAppleEventsUsageDescription: CloseQuit asks apps you have added to quit after you close their last window.
+    entitlements:
+      path: CloseQuit/CloseQuit.entitlements
+      properties:
+        # The Accessibility API and event taps don't work inside the App Sandbox.
+        com.apple.security.app-sandbox: false
+    settings:
+      base:
+        PRODUCT_NAME: CloseQuit
+        PRODUCT_BUNDLE_IDENTIFIER: $(CLOSEQUIT_BUNDLE_ID)
+        # Sign with your Apple Development certificate (never ad hoc), so macOS keeps the
+        # Accessibility permission across rebuilds.
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: Apple Development
+        ENABLE_APP_SANDBOX: NO
+        ENABLE_HARDENED_RUNTIME: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        COMBINE_HIDPI_IMAGES: YES
+        GENERATE_INFOPLIST_FILE: NO
+
+  # Unit tests for the decision rules. They compile CloseQuit/Core directly, so they run
+  # without launching the app.
+  CloseQuitTests:
+    type: bundle.unit-test
+    platform: macOS
+    configFiles:
+      Debug: Config/Signing.xcconfig
+      Release: Config/Signing.xcconfig
+    sources:
+      - path: CloseQuitTests
+      - path: CloseQuit/Core
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(CLOSEQUIT_BUNDLE_ID).tests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: Apple Development
+
+schemes:
+  CloseQuit:
+    build:
+      targets:
+        CloseQuit: all
+    run:
+      config: Debug
+    profile:
+      config: Release
+    archive:
+      config: Release
+  CloseQuitTests:
+    build:
+      targets:
+        CloseQuitTests: [test]
+    test:
+      config: Debug
+      targets:
+        - CloseQuitTests

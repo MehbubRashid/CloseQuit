@@ -1,0 +1,19 @@
+// Signing settings for CloseQuit.
+//
+// Put your 10-character Apple Developer Team ID in Config/Local.xcconfig (git-ignored):
+//
+//     echo 'DEVELOPMENT_TEAM = AB12CD34EF' > Config/Local.xcconfig
+//
+// Xcode ▸ Settings ▸ Accounts shows your team; a free Personal Team works too. On the first
+// build Xcode creates your "Apple Development" certificate if you don't have one yet.
+//
+// Keep the team and the bundle ID the same from build to build: macOS ties the Accessibility
+// permission to this signature, which is why it survives rebuilds. Changing either one
+// means granting access again.
+
+DEVELOPMENT_TEAM =
+
+CLOSEQUIT_BUNDLE_ID = com.closequit.CloseQuit
+
+// Your personal values (not committed) override the ones above.
+#include? "Local.xcconfig"
