@@ -62,8 +62,13 @@ enum ClickPolicy {
     /// letting go cancels. The frame is captured at mouse-down because by the time we could
     /// hit-test again after mouse-up, the app may already have closed the window.
     static func releaseConfirmsClose(buttonFrame: CGRect, releaseLocation point: CGPoint) -> Bool {
+        isOnButton(point, buttonFrame: buttonFrame)
+    }
+
+    /// Whether `point` is on a button with this frame. Edges included: a click on the button's
+    /// last point still presses it.
+    static func isOnButton(_ point: CGPoint, buttonFrame: CGRect) -> Bool {
         guard !buttonFrame.isEmpty else { return false }
-        // Edges included: a release on the button's last point still presses it.
         return point.x >= buttonFrame.minX && point.x <= buttonFrame.maxX
             && point.y >= buttonFrame.minY && point.y <= buttonFrame.maxY
     }

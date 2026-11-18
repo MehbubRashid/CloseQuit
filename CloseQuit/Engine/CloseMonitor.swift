@@ -141,7 +141,6 @@ final class CloseMonitor {
         latestConfig.withLock { $0 = newConfig }
         Engine.queue.async { [self] in
             let allowlistChanged = newConfig.allowlist != config.allowlist
-            let commandWChanged = newConfig.commandW != config.commandW
             config = newConfig
 
             let status: MonitorStatus
@@ -157,8 +156,10 @@ final class CloseMonitor {
                 status = .failed("macOS wouldn't let CloseQuit watch clicks and keys. In Privacy & Security ▸ Accessibility, remove CloseQuit, add it again, then reopen it.")
             }
 
-            if allowlistChanged { dropWorkForRemovedApps() }
-            if allowlistChanged || commandWChanged { updateFocusTracking() }
+            if allowlistChanged {
+                dropWorkForRemovedApps()
+                updateFocusTracking()
+            }
             DispatchQueue.main.async { completion(status) }
         }
     }
@@ -170,6 +171,12 @@ final class CloseMonitor {
             guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
             let pid = app.processIdentifier
             Engine.queue.async { self?.frontmostChanged(to: pid) }
+        })
+        workspaceObservers.append(center.addObserver(forName: NSWorkspace.didLaunchApplicationNotification,
+                                                     object: nil, queue: .main) { [weak self] note in
+            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            let pid = app.processIdentifier
+            Engine.queue.async { self?.focus.appFinishedLaunching(pid) }
         })
         workspaceObservers.append(center.addObserver(forName: NSWorkspace.didTerminateApplicationNotification,
                                                      object: nil, queue: .main) { [weak self] note in
@@ -251,8 +258,10 @@ final class CloseMonitor {
         if pendingClick?.app.pid == pid { pendingClick = nil }
     }
 
+    /// The frontmost allowed app's windows are kept up to date: ⌘W is judged against them, and
+    /// their close buttons are recognised even while the app is already closing the window.
     private func updateFocusTracking() {
-        if monitoring, config.commandW, let app = allowedApp(frontmostPID) {
+        if monitoring, let app = allowedApp(frontmostPID) {
             focus.track(app.pid)
         } else {
             focus.track(nil)
@@ -299,20 +308,49 @@ final class CloseMonitor {
             log.notice("Close button belongs to pid \(pid) but the click goes to pid \(target); ignoring")
             return
         }
-        guard let app = allowedApp(pid) else { return }
-        // A disabled close button (for example while a sheet is open) does nothing when clicked;
-        // if its state can't be read, don't guess.
-        switch AXKit.bool(button, kAXEnabledAttribute) {
-        case .value(false), .gone, .failed: return
-        case .value(true), .missing: break
+        guard let app = allowedApp(pid),
+              let pressed = pressedWindow(of: button, pid: pid, app: app, at: location) else { return }
+        pendingClick = PendingClick(number: clickNumber, app: app, button: button, buttonFrame: pressed.buttonFrame,
+                                    window: pressed.window)
+        log.info("Close button pressed in \(app.name, privacy: .public); waiting for the release")
+    }
+
+    /// The window whose close button `button` was just pressed, and the button's frame; nil if
+    /// the press doesn't count.
+    private func pressedWindow(of button: AXUIElement, pid: pid_t, app: AppIdentity,
+                               at location: CGPoint) -> (window: AXUIElement, buttonFrame: CGRect)? {
+        // A tap on the trackpad delivers the press and the release together, so by the time we
+        // ask, the app is often already closing the window: it then calls itself a dialog and its
+        // frame stops answering. A close button recorded before the click, right where the press
+        // landed, answers for it. (A press outside the recorded frame means the window has moved.)
+        let known = focus.knownCloseButton(button).flatMap {
+            ClickPolicy.isOnButton(location, buttonFrame: $0.frame) ? $0 : nil
         }
+        // A disabled close button (for example while a sheet is open) does nothing when clicked;
+        // if its state can't be read, don't guess. A recorded one that is already gone was
+        // pressed: the click has closed its window.
+        switch AXKit.bool(button, kAXEnabledAttribute) {
+        case .value(true), .missing:
+            break
+        case .gone where known != nil:
+            break
+        case .value(false):
+            log.info("Ignored a click on \(app.name, privacy: .public)'s close button: it's disabled")
+            return nil
+        case .gone, .failed:
+            log.info("Ignored a click on \(app.name, privacy: .public)'s close button: it didn't answer")
+            return nil
+        }
+        if let known { return (known.window, known.frame) }
         // Only the close button of a real window counts, not a panel's or a palette's.
         guard let window = AXKit.element(button, kAXWindowAttribute).value,
               AXKit.pid(of: window) == pid,
               inspector.kind(of: window)?.isRealWindow == true,
-              let frame = AXKit.frame(of: button).value else { return }
-        pendingClick = PendingClick(number: clickNumber, app: app, button: button, buttonFrame: frame, window: window)
-        log.info("Close button pressed in \(app.name, privacy: .public); waiting for the release")
+              let frame = AXKit.frame(of: button).value else {
+            log.info("Ignored a click on \(app.name, privacy: .public)'s close button: couldn't confirm it's on a regular window")
+            return nil
+        }
+        return (window, frame)
     }
 
     private func mouseUp(at location: CGPoint) {

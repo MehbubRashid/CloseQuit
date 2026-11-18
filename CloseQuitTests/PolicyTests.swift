@@ -65,6 +65,15 @@ final class ClickPolicyTests: XCTestCase {
         XCTAssertFalse(ClickPolicy.releaseConfirmsClose(buttonFrame: .zero, releaseLocation: .zero))
     }
 
+    func testRecordedButtonOnlyCountsWhereThePressLanded() {
+        // A close button recorded before a tap stands in for the live one only if the press landed
+        // on its recorded frame; a press elsewhere means the window has moved since.
+        XCTAssertTrue(ClickPolicy.isOnButton(CGPoint(x: 107, y: 58), buttonFrame: button))
+        XCTAssertTrue(ClickPolicy.isOnButton(CGPoint(x: 114, y: 66), buttonFrame: button))
+        XCTAssertFalse(ClickPolicy.isOnButton(CGPoint(x: 130, y: 58), buttonFrame: button))
+        XCTAssertFalse(ClickPolicy.isOnButton(CGPoint(x: 107, y: 58), buttonFrame: .zero))
+    }
+
     func testControlClickIsIgnored() {
         XCTAssertTrue(ClickPolicy.ignoresMouseDown(flags: .maskControl))
         XCTAssertFalse(ClickPolicy.ignoresMouseDown(flags: []))

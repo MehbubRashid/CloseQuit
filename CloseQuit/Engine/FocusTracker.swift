@@ -3,10 +3,11 @@
 //  CloseQuit
 //
 //  Keeps a snapshot of the frontmost allowed app ("which real windows does it have, which
-//  one is focused"), refreshed by AXObserver notifications and on every ⌘ press, never by
-//  polling. ⌘W is only acted on if a snapshot taken after ⌘ went down says a real window was
-//  open, so ⌘W in an app with no windows (or with only a palette focused) never quits it.
-//  Engine.queue only.
+//  one is focused, where are their close buttons"), refreshed by AXObserver notifications and
+//  on every ⌘ press, never by polling. ⌘W is only acted on if a snapshot taken after ⌘ went down
+//  says a real window was open, so ⌘W in an app with no windows (or with only a palette focused)
+//  never quits it. The close buttons let a tap on the trackpad count even when the app starts
+//  closing the window before CloseQuit can look at it. Engine.queue only.
 //
 
 import ApplicationServices
@@ -18,6 +19,8 @@ final class FocusTracker {
     private var token: Int?
     private var subscribed = false
     private var refreshPending = false
+    /// The app we're waiting on to start answering Accessibility after its launch, if any.
+    private var awaitingAnswerFrom: pid_t = 0
     /// Windows we've asked to hear about when they're destroyed.
     private var observedWindows: [AXUIElement] = []
 
@@ -46,15 +49,37 @@ final class FocusTracker {
     /// worst it can do is see a window already closed and make CloseQuit more cautious.
     func commandPressed() {
         guard pid != 0 else { return }
-        if !subscribed {
-            unsubscribe()
-            subscribe()
+        catchUp()
+    }
+
+    /// `launchedPID` has finished launching. An app that is still starting up doesn't answer
+    /// Accessibility, so subscribing fails when it first comes to the front, and without the
+    /// subscription its close buttons go unrecorded. It starts answering a moment after it
+    /// finishes launching: wait for that off the engine queue, then subscribe again.
+    func appFinishedLaunching(_ launchedPID: pid_t) {
+        guard launchedPID == pid, pid != 0, !subscribed, awaitingAnswerFrom != pid else { return }
+        let target = pid
+        awaitingAnswerFrom = target
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let element = AXUIElementCreateApplication(target)
+            AXUIElementSetMessagingTimeout(element, 5)
+            var role: CFTypeRef?
+            let answered = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role) == .success
+            Engine.queue.async {
+                guard let self else { return }
+                if self.awaitingAnswerFrom == target { self.awaitingAnswerFrom = 0 }
+                if answered, self.pid == target { self.catchUp() }
+            }
         }
-        refreshNow()
     }
 
     func forget(_ endedPID: pid_t) {
         if endedPID == pid { track(nil) }
+    }
+
+    /// `button`'s record, if it is the close button of one of the tracked app's real windows.
+    func knownCloseButton(_ button: AXUIElement) -> KnownCloseButton? {
+        snapshot?.closeButtons.first { CFEqual($0.button, button) }
     }
 
     private func subscribe() {
@@ -67,9 +92,20 @@ final class FocusTracker {
         }
         self.token = token
         let appElement = AXKit.application(target)
-        let results = [kAXFocusedWindowChangedNotification, kAXMainWindowChangedNotification, kAXWindowCreatedNotification]
+        let results = [kAXFocusedWindowChangedNotification, kAXMainWindowChangedNotification, kAXWindowCreatedNotification,
+                       // A window that moves or changes size takes its close button with it.
+                       kAXWindowMovedNotification, kAXWindowResizedNotification]
             .map { AXObserverCenter.shared.register(token, $0, on: appElement) }
         subscribed = results.contains { $0 == .success || $0 == .notificationAlreadyRegistered }
+    }
+
+    /// Subscribe again if that failed before, and take a fresh snapshot.
+    private func catchUp() {
+        if !subscribed {
+            unsubscribe()
+            subscribe()
+        }
+        refreshNow()
     }
 
     private func unsubscribe() {

@@ -32,7 +32,18 @@ struct FocusSnapshot {
     let realWindows: [AXUIElement]
     /// The focused window, if it is a real window (the one ⌘W is about to close).
     let focusedRealWindow: AXUIElement?
+    /// The real windows' close buttons, as seen before any click on them.
+    let closeButtons: [KnownCloseButton]
     let takenAt: TimeInterval
+}
+
+/// A real window's close button, recorded ahead of any click. A tap on the trackpad delivers the
+/// press and the release together, so the app may already be closing the window by the time
+/// CloseQuit asks about the button; this still says whose button it was and where.
+struct KnownCloseButton {
+    let button: AXUIElement
+    let window: AXUIElement
+    let frame: CGRect
 }
 
 final class WindowInspector {
@@ -127,7 +138,8 @@ final class WindowInspector {
         try? classify(window)
     }
 
-    /// Nil if anything can't be read: the first failure ends it, so a hung app costs one timeout.
+    /// Nil if anything ⌘W needs can't be read: the first failure ends it, so a hung app costs one
+    /// timeout. A close button that can't be read is just left out.
     func focusSnapshot(pid: pid_t) -> FocusSnapshot? {
         let appElement = AXKit.application(pid)
         do {
@@ -145,10 +157,24 @@ final class WindowInspector {
                (try? classify(focused))?.isRealWindow == true {
                 focusedRealWindow = focused
             }
-            return FocusSnapshot(pid: pid, realWindows: realWindows, focusedRealWindow: focusedRealWindow, takenAt: Engine.now)
+            // Read last, so the part ⌘W relies on is taken as close to the ⌘ press as possible.
+            var closeButtons: [KnownCloseButton] = []
+            for window in realWindows {
+                let read = closeButton(of: window)
+                if case .failed = read { break }  // a slow app costs one timeout, not one per window
+                if let known = read.value { closeButtons.append(known) }
+            }
+            return FocusSnapshot(pid: pid, realWindows: realWindows, focusedRealWindow: focusedRealWindow,
+                                 closeButtons: closeButtons, takenAt: Engine.now)
         } catch {
             return nil
         }
+    }
+
+    private func closeButton(of window: AXUIElement) -> AXRead<KnownCloseButton> {
+        let button = AXKit.element(window, kAXCloseButtonAttribute)
+        guard case .value(let element) = button else { return button.cast { _ in nil } }
+        return AXKit.frame(of: element).cast { KnownCloseButton(button: element, window: window, frame: $0) }
     }
 
     private func classify(_ window: AXUIElement) throws -> WindowKind {
